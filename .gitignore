@@ -1,0 +1,24 @@
+.idea/
+.hvigor/
+.build/
+.cxx/
+build/
+*/build/
+oh_modules/
+*/oh_modules/
+**/target/
+local.properties
+# DevEco automatic signing writes local certificate paths and passwords here.
+build-profile.json5
+*.hap
+*.app
+*.so
+*.dSYM/
+.DS_Store
+*.log
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt

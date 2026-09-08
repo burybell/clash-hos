@@ -1,0 +1,216 @@
+diff --git a/clash-ffi/Cargo.toml b/clash-ffi/Cargo.toml
+--- a/clash-ffi/Cargo.toml
++++ b/clash-ffi/Cargo.toml
+@@ -6,6 +6,8 @@ edition = { workspace = true }
+
+ [dependencies]
+ clash-lib = { path = "../clash-lib", default-features = false, features = ["aws-lc-rs", "shadowsocks", "ssh", "tun", "zero_copy"] }
++serde_yaml = "0.9"
++tokio-util = "0.7"
+
+ [lib]
+ name = "clashrs"
+diff --git a/clash-ffi/src/lib.rs b/clash-ffi/src/lib.rs
+--- a/clash-ffi/src/lib.rs
++++ b/clash-ffi/src/lib.rs
+@@ -1,65 +1,154 @@
+-use clash_lib::{Config, Options, TokioRuntime, shutdown, start_scaffold};
++use clash_lib::{Config, Options, TokioRuntime, start_scaffold_instance};
++use serde_yaml::{Mapping, Value};
+ use std::{
+     ffi::{CStr, CString},
+     os::raw::{c_char, c_int},
++    sync::Mutex,
++    thread::JoinHandle,
+ };
++use tokio_util::sync::CancellationToken;
+
+-/// # Safety
+-/// This function is unsafe because it dereferences raw pointers.
+-#[unsafe(no_mangle)]
+-pub unsafe extern "C" fn clash_start(
+-    config: *const c_char,
+-    log: *const c_char,
+-    cwd: *const c_char,
+-    multithread: c_int,
+-) -> *mut c_char {
+-    unsafe {
+-        let config_str = CStr::from_ptr(config)
+-            .to_str()
+-            .unwrap_or_default()
+-            .to_string();
+-        let log_str = CStr::from_ptr(log).to_str().unwrap_or_default().to_string();
+-        let cwd_str = CStr::from_ptr(cwd).to_str().unwrap_or_default().to_string();
+-
+-        let rt = if multithread != 0 {
+-            Some(TokioRuntime::MultiThread)
+-        } else {
+-            Some(TokioRuntime::SingleThread)
+-        };
+-
+-        let options = Options {
+-            config: Config::Str(config_str),
+-            cwd: Some(cwd_str),
+-            rt,
+-            log_file: Some(log_str),
+-            config_path: None,
+-        };
+-
+-        match start_scaffold(options) {
+-            Ok(_) => CString::new("").unwrap().into_raw(),
+-            Err(e) => CString::new(format!("Error: {e}")).unwrap().into_raw(),
+-        }
++struct RunningInstance {
++    handle: JoinHandle<()>,
++    token: CancellationToken,
++}
++
++static INSTANCE: Mutex<Option<RunningInstance>> = Mutex::new(None);
++
++fn result_string(message: impl Into<String>) -> *mut c_char {
++    CString::new(message.into())
++        .unwrap_or_else(|_| CString::new("invalid error message").unwrap())
++        .into_raw()
++}
++
++fn config_with_tun(config: &str, tun_fd: c_int) -> Result<String, String> {
++    if tun_fd < 0 {
++        return Err("invalid TUN file descriptor".to_string());
+     }
++
++    let mut root: Value = serde_yaml::from_str(config)
++        .map_err(|e| format!("invalid Clash YAML: {e}"))?;
++    let mapping = root
++        .as_mapping_mut()
++        .ok_or_else(|| "Clash YAML root must be a mapping".to_string())?;
++
++    let mut tun = Mapping::new();
++    tun.insert(Value::String("enable".to_string()), Value::Bool(true));
++    tun.insert(
++        Value::String("device-id".to_string()),
++        Value::String(format!("fd://{tun_fd}")),
++    );
++    tun.insert(
++        Value::String("gateway".to_string()),
++        Value::String("198.18.0.1/30".to_string()),
++    );
++    tun.insert(
++        Value::String("gateway-v6".to_string()),
++        Value::String("fd00:198:18::1/126".to_string()),
++    );
++    tun.insert(Value::String("route-all".to_string()), Value::Bool(false));
++    tun.insert(Value::String("dns-hijack".to_string()), Value::Bool(true));
++    tun.insert(
++        Value::String("mtu".to_string()),
++        Value::Number(1500.into()),
++    );
++    mapping.insert(Value::String("tun".to_string()), Value::Mapping(tun));
++
++    serde_yaml::to_string(&root).map_err(|e| format!("failed to prepare Clash YAML: {e}"))
+ }
+
++/// Starts one Clash instance using an already-created HarmonyOS VPN TUN FD.
++/// Returns an allocated empty string on success, otherwise an error string.
++///
++/// # Safety
++/// All string pointers must be valid, non-null, NUL-terminated UTF-8 strings.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn clash_start_with_tun_fd(
++    config: *const c_char,
++    log: *const c_char,
++    cwd: *const c_char,
++    tun_fd: c_int,
++) -> *mut c_char {
++    if config.is_null() || log.is_null() || cwd.is_null() {
++        return result_string("null FFI argument");
++    }
++
++    let mut instance = INSTANCE.lock().unwrap();
++    if instance
++        .as_ref()
++        .is_some_and(|running| !running.handle.is_finished())
++    {
++        return result_string("Clash instance is already running");
++    }
++    if let Some(finished) = instance.take() {
++        let _ = finished.handle.join();
++    }
++
++    let config_str = unsafe { CStr::from_ptr(config) }
++        .to_str()
++        .unwrap_or_default();
++    let log_str = unsafe { CStr::from_ptr(log) }
++        .to_str()
++        .unwrap_or_default()
++        .to_string();
++    let cwd_str = unsafe { CStr::from_ptr(cwd) }
++        .to_str()
++        .unwrap_or_default()
++        .to_string();
++    let prepared = match config_with_tun(config_str, tun_fd) {
++        Ok(prepared) => prepared,
++        Err(error) => return result_string(error),
++    };
++
++    let options = Options {
++        config: Config::Str(prepared),
++        cwd: Some(cwd_str),
++        rt: Some(TokioRuntime::MultiThread),
++        log_file: Some(log_str),
++        config_path: None,
++    };
++
++    match start_scaffold_instance(options) {
++        Ok((handle, token)) => {
++            *instance = Some(RunningInstance { handle, token });
++            result_string("")
++        }
++        Err(error) => result_string(format!("{error}")),
++    }
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn clash_is_running() -> c_int {
++    let mut instance = INSTANCE.lock().unwrap();
++    if instance
++        .as_ref()
++        .is_some_and(|running| !running.handle.is_finished())
++    {
++        return 1;
++    }
++    if let Some(finished) = instance.take() {
++        let _ = finished.handle.join();
++    }
++    0
++}
++
+ #[unsafe(no_mangle)]
+ pub extern "C" fn clash_shutdown() -> c_int {
+-    if shutdown() {
+-        1 // Success
++    let running = INSTANCE.lock().unwrap().take();
++    if let Some(running) = running {
++        running.token.cancel();
++        let _ = running.handle.join();
++        1
+     } else {
+-        0 // Failure
++        0
+     }
+ }
+
+ /// # Safety
+-/// This function is unsafe because it dereferences raw pointers.
++/// `s` must be a pointer returned by this library and must be freed once.
+ #[unsafe(no_mangle)]
+-#[allow(unused_must_use)]
+ pub unsafe extern "C" fn clash_free_string(s: *mut c_char) {
+-    if s.is_null() {
+-        return;
++    if !s.is_null() {
++        let _ = unsafe { CString::from_raw(s) };
+     }
+-    unsafe {
+-        CString::from_raw(s);
+-    }
+ }

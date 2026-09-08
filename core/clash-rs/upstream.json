@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/Watfaq/clash-rs.git",
+  "commit": "470bc5a427bfaea3fafcedf32563010f9a47b691",
+  "version": "0.10.8",
+  "license": "Apache-2.0",
+  "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+}

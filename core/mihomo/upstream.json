@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/MetaCubeX/mihomo.git",
+  "tag": "v1.19.30",
+  "commit": "ac017cdd246ce8bd547653d927e7bf77d7ee73d5",
+  "license": "GPL-3.0",
+  "licenseSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+  "goModSha256": "944b5c26fc12aec517a436d9204f034b513269b46ee66b900ba0855c9b53e9f3",
+  "recordedAt": "2026-09-08"
+}

@@ -1,0 +1,13 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 826d4d2..13dcb04 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -18,7 +18,7 @@ resolver = "2"
+ [workspace.package]
+ version = "0.5.0"
+ edition = "2021"
+-rust-version = "1.96"
++rust-version = "1.93"
+ license = "MPL-2.0"
+ repository = "https://github.com/aimalygin/xray-rust"
+ publish = false

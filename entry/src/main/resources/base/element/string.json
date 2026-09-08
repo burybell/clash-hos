@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_description",
+      "value": "原生的 Clash 兼容网络客户端"
+    },
+    {
+      "name": "entry_ability_description",
+      "value": "原生网络配置客户端"
+    },
+    {
+      "name": "entry_ability_label",
+      "value": "Clash HOS"
+    },
+    {
+      "name": "vpn_extension_description",
+      "value": "Clash HOS VPN 服务"
+    }
+  ]
+}

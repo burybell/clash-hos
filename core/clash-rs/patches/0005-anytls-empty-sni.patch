@@ -1,0 +1,40 @@
+diff --git a/clash-lib/src/config/internal/proxy.rs b/clash-lib/src/config/internal/proxy.rs
+index 398a17e..fd51cd3 100644
+--- a/clash-lib/src/config/internal/proxy.rs
++++ b/clash-lib/src/config/internal/proxy.rs
+@@ -929,4 +929,23 @@ mod anytls_tests {
+         assert_eq!(config.idle_session_timeout, Some(300));
+         assert_eq!(config.min_idle_session, Some(2));
+     }
++
++    #[test]
++    fn empty_anytls_sni_is_preserved_for_runtime_fallback() {
++        let yaml = r#"
++            name: anytls-empty-sni
++            type: anytls
++            server: example.com
++            port: 443
++            password: secret
++            sni: ""
++        "#;
++        let config: OutboundProxyProtocol =
++            serde_yaml::from_str(yaml).expect("should parse empty SNI");
++        let Anytls(config) = config else {
++            panic!("expected anytls config");
++        };
++        assert_eq!(config.sni.as_deref(), Some(""));
++        assert_eq!(config.common_opts.server, "example.com");
++    }
+ }
+diff --git a/clash-lib/src/proxy/converters/anytls.rs b/clash-lib/src/proxy/converters/anytls.rs
+index 947f0e9..ad887a7 100644
+--- a/clash-lib/src/proxy/converters/anytls.rs
++++ b/clash-lib/src/proxy/converters/anytls.rs
+@@ -60,6 +60,7 @@ impl TryFrom<&OutboundAnytls> for Handler {
+                     skip_cert_verify,
+                     s.sni
+                         .clone()
++                        .filter(|value| !value.trim().is_empty())
+                         .unwrap_or_else(|| s.common_opts.server.clone()),
+                     s.alpn
+                         .clone()

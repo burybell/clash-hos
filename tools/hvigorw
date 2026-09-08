@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+deveco_app_path="${DEVECO_APP_PATH:-/Applications/DevEco-Studio.app}"
+deveco_contents_path="${deveco_app_path}/Contents"
+hvigor_path="${deveco_contents_path}/tools/hvigor/bin/hvigorw"
+
+if [[ ! -x "${hvigor_path}" ]]; then
+  echo "DevEco Studio hvigor was not found at ${hvigor_path}" >&2
+  exit 1
+fi
+
+export DEVECO_SDK_HOME="${deveco_contents_path}/sdk"
+export NODE_HOME="${deveco_contents_path}/tools/node"
+
+exec "${hvigor_path}" "$@"

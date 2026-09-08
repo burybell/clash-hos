@@ -1,0 +1,12 @@
+{
+  "modelVersion": "5.1.0",
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Clash HOS entry module",
+  "main": "",
+  "author": "Clash HOS contributors",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "libclash_core.so": "file:./src/main/cpp/types/libclash_core"
+  }
+}

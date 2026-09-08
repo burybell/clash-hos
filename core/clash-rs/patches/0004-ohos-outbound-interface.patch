@@ -1,0 +1,24 @@
+diff --git a/clash-lib/src/app/net/mod.rs b/clash-lib/src/app/net/mod.rs
+--- a/clash-lib/src/app/net/mod.rs
++++ b/clash-lib/src/app/net/mod.rs
+@@ -139,14 +139,17 @@ pub fn get_outbound_interface() -> Option<OutboundInterface> {
+         .map(Into::into)
+         .filter(|iface: &OutboundInterface| {
+             !iface.name.contains("tun")
++                && !(cfg!(target_env = "ohos") && iface.name.contains("_ims"))
+                 && (iface.addr_v4.is_some() || iface.addr_v6.is_some())
+         })
+         .collect::<Vec<_>>();
+
+-    let priority: &[&str] = if cfg!(target_os = "android") {
++    let priority: &[&str] = if cfg!(any(target_os = "android", target_env = "ohos")) {
+         &[
+-            "wlan",  // Android Wi-Fi interface
+-            "rmnet", // Android mobile data interface
++            "wlan",  // Android/OHOS Wi-Fi interface
++            "eth",   // OHOS PC wired interface
++            "en",    // Alternate OHOS PC interface
++            "rmnet", // Android/OHOS mobile data interface
+         ]
+     } else if cfg!(target_os = "windows") {
+         &["Ethernet", "Wi-Fi", "Tailscale"]

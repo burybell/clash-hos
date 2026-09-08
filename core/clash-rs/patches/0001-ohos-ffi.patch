@@ -1,0 +1,121 @@
+diff --git a/clash-ffi/Cargo.toml b/clash-ffi/Cargo.toml
+index 39974ce..e59d00c 100644
+--- a/clash-ffi/Cargo.toml
++++ b/clash-ffi/Cargo.toml
+@@ -5,7 +5,7 @@ version = { workspace = true }
+ edition = { workspace = true }
+
+ [dependencies]
+-clash-lib = { path = "../clash-lib", default-features = false, features = ["shadowsocks", "tuic", "ssh", "zero_copy"] }
++clash-lib = { path = "../clash-lib", default-features = false, features = ["aws-lc-rs", "shadowsocks", "ssh", "tun", "zero_copy"] }
+
+ [lib]
+ name = "clashrs"
+diff --git a/clash-lib/Cargo.toml b/clash-lib/Cargo.toml
+index c4aa1ce..ab36122 100644
+--- a/clash-lib/Cargo.toml
++++ b/clash-lib/Cargo.toml
+@@ -250,12 +250,12 @@ prost-build = "0.14"
+ protox = "0.9"
+ anyhow = "1"
+
+-[target.'cfg(any(target_os="linux", target_os="macos", target_os="windows"))'.dependencies]
++[target.'cfg(all(not(target_env="ohos"), any(target_os="linux", target_os="macos", target_os="windows")))'.dependencies]
+ sock2proc = { git = "https://github.com/Watfaq/sock2proc.git", rev = "9f9e630" }
+ [target.'cfg(unix)'.dependencies]
+ hyperlocal = { version = "0.9", features = ["client"] }
+
+-[target.'cfg(target_os="linux")'.dependencies]
++[target.'cfg(all(target_os="linux", not(target_env="ohos")))'.dependencies]
+ unix-udp-sock = { git = "https://github.com/Watfaq/unix-udp-sock.git", rev = "847c80b519f0fd8cff5c887ae708429897d08671" }
+
+ [target.'cfg(macos)'.dependencies]
+diff --git a/clash-lib/src/app/router/rules/process.rs b/clash-lib/src/app/router/rules/process.rs
+index d43c255..294c020 100644
+--- a/clash-lib/src/app/router/rules/process.rs
++++ b/clash-lib/src/app/router/rules/process.rs
+@@ -15,7 +15,10 @@ impl std::fmt::Display for Process {
+
+ impl RuleMatcher for Process {
+     fn apply(&self, sess: &crate::session::Session) -> bool {
+-        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
++        #[cfg(all(
++            not(target_env = "ohos"),
++            any(target_os = "linux", target_os = "macos", target_os = "windows")
++        ))]
+         {
+             use crate::session::Network;
+             use tracing::debug;
+@@ -37,11 +40,14 @@ impl RuleMatcher for Process {
+                 }
+             })
+         }
+-        #[cfg(not(any(
+-            target_os = "linux",
+-            target_os = "macos",
+-            target_os = "windows"
+-        )))]
++        #[cfg(any(
++            target_env = "ohos",
++            not(any(
++                target_os = "linux",
++                target_os = "macos",
++                target_os = "windows"
++            ))
++        ))]
+         {
+             use tracing::info;
+
+diff --git a/clash-lib/src/proxy/tun/mod.rs b/clash-lib/src/proxy/tun/mod.rs
+index a477203..cc8be73 100644
+--- a/clash-lib/src/proxy/tun/mod.rs
++++ b/clash-lib/src/proxy/tun/mod.rs
+@@ -4,7 +4,7 @@ pub mod runner;
+ pub use runner::TunRunner;
+ mod stream;
+
+-#[cfg(target_os = "linux")] // for tproxy
++#[cfg(all(target_os = "linux", not(target_env = "ohos")))] // for tproxy
+ pub use datagram::TunDatagram;
+
+ #[cfg(test)]
+diff --git a/clash-lib/src/proxy/tun/runner.rs b/clash-lib/src/proxy/tun/runner.rs
+index a2ab281..2e661ce 100644
+--- a/clash-lib/src/proxy/tun/runner.rs
++++ b/clash-lib/src/proxy/tun/runner.rs
+@@ -17,8 +17,10 @@ use crate::{
+ /// Maximum number of attempts to wait for a newly created TUN interface to
+ /// become visible via NetworkInterface::show().
++#[cfg(not(target_env = "ohos"))]
+ const TUN_VISIBILITY_MAX_ATTEMPTS: u32 = 40;
+ /// Interval in milliseconds between each visibility poll attempt.
++#[cfg(not(target_env = "ohos"))]
+ const TUN_VISIBILITY_POLL_INTERVAL_MS: u64 = 50;
+
+ #[derive(Default)]
+ struct TunInitializationConfig {
+@@ -127,7 +127,10 @@ impl TunRunner {
+                 )));
+             }
+         } else {
+-            #[cfg(not(any(target_os = "ios", target_os = "android")))]
++            #[cfg(all(
++                not(target_env = "ohos"),
++                not(any(target_os = "ios", target_os = "android"))
++            ))]
+             {
+                 use crate::proxy::tun::routes::maybe_add_routes;
+                 use network_interface::NetworkInterfaceConfig;
+@@ -288,7 +291,11 @@ impl TunRunner {
+
+                 dev
+             }
+-            #[cfg(any(target_os = "ios", target_os = "android"))]
++            #[cfg(any(
++                target_env = "ohos",
++                target_os = "ios",
++                target_os = "android"
++            ))]
+             {
+                 return Err(Error::InvalidConfig(
+                     "only fd is supported on mobile platforms".to_string(),
