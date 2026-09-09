@@ -9,6 +9,13 @@ export interface NativeTrafficStats {
   uploadBytes: number;
   downloadBytes: number;
   activeConnections: number;
+  inboundPackets?: number;
+  outboundPackets?: number;
+  droppedPackets?: number;
+  tcpOpenErrors?: number;
+  udpOpenErrors?: number;
+  udpQuicBlockedPackets?: number;
+  udpVisionRejections?: number;
 }
 
 export const getStatus: () => NativeCoreStatus;

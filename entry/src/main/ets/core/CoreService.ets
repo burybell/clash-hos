@@ -2,7 +2,6 @@ import { Want } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { vpnExtension } from '@kit.NetworkKit';
 import { CoreStatus, TunnelState } from './CoreTypes';
-import { NativeCoreBridge } from './NativeCoreBridge';
 import { runtimeStateService } from './RuntimeStateService';
 
 const VPN_WANT: Want = {
@@ -24,7 +23,7 @@ export class CoreService {
   hydrate(filesDir: string): CoreStatus {
     const stored: CoreStatus | undefined = runtimeStateService.read(filesDir);
     if (stored) {
-      if (stored.state === TunnelState.CONNECTED && !NativeCoreBridge.getStatus().running) {
+      if (stored.state === TunnelState.CONNECTED && !runtimeStateService.isHeartbeatFresh(filesDir)) {
         this.status = {
           state: TunnelState.DISCONNECTED,
           message: '上次连接已结束，可以重新连接'
@@ -38,14 +37,6 @@ export class CoreService {
   }
 
   async connect(filesDir: string): Promise<CoreStatus> {
-    if (!NativeCoreBridge.isAvailable()) {
-      this.status = {
-        state: TunnelState.FAILED,
-        message: '原生内核尚未就绪，未创建 VPN 连接。'
-      };
-      return this.status;
-    }
-
     this.status = {
       state: TunnelState.STARTING,
       message: '正在请求 VPN 授权'
@@ -97,7 +88,9 @@ export class CoreService {
   }
 
   private async waitForRuntime(filesDir: string): Promise<CoreStatus> {
-    for (let attempt: number = 0; attempt < 30; attempt++) {
+    // The first VPN authorization can remain visible while the user reviews the
+    // system dialog. Do not turn that normal interaction into a false timeout.
+    for (let attempt: number = 0; attempt < 150; attempt++) {
       const runtimeStatus: CoreStatus | undefined = runtimeStateService.read(filesDir);
       if (runtimeStatus) {
         return runtimeStatus;
@@ -108,7 +101,7 @@ export class CoreService {
     }
     return {
       state: TunnelState.FAILED,
-      message: 'VPN 扩展启动超时，请重试或检查系统授权'
+      message: 'VPN 扩展在 15 秒内未就绪，请检查系统授权后重试'
     };
   }
 }

@@ -1,8 +1,10 @@
 import { http } from '@kit.NetworkKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { TrafficStats } from './CoreTypes';
 
 const CONTROLLER_BASE: string = 'http://127.0.0.1:9090';
 const LATENCY_TEST_URL: string = 'https://www.gstatic.com/generate_204';
+const LATENCY_FALLBACK_URL: string = 'https://cp.cloudflare.com/generate_204';
 const XRAY_LATENCY_PORT_BASE: number = 17900;
 
 interface DelayResponse {
@@ -20,6 +22,7 @@ export interface NodeDelayResult {
   name: string;
   delay: number;
   available: boolean;
+  detail?: string;
 }
 
 export class CoreControllerService {
@@ -83,11 +86,32 @@ export class CoreControllerService {
   }
 
   async testNode(name: string, index: number = -1): Promise<NodeDelayResult> {
+    return this.testNodeWithUrl(name, LATENCY_TEST_URL, index);
+  }
+
+  async verifyNode(name: string, index: number = -1): Promise<NodeDelayResult> {
+    const primary: NodeDelayResult = await this.testNodeWithUrl(name, LATENCY_TEST_URL, index);
+    if (primary.available) {
+      return primary;
+    }
+    const fallback: NodeDelayResult = await this.testNodeWithUrl(name, LATENCY_FALLBACK_URL, index);
+    if (fallback.available) {
+      return fallback;
+    }
+    return {
+      name,
+      delay: 0,
+      available: false,
+      detail: fallback.detail ?? primary.detail ?? '代理握手或访问测试超时'
+    };
+  }
+
+  private async testNodeWithUrl(name: string, testUrl: string, index: number): Promise<NodeDelayResult> {
     if (index >= 0) {
-      return this.testXrayNode(name, index);
+      return this.testXrayNode(name, index, testUrl);
     }
     const path: string = `/proxies/${encodeURIComponent(name)}/delay`;
-    const query: string = `timeout=8000&url=${encodeURIComponent(LATENCY_TEST_URL)}`;
+    const query: string = `timeout=8000&url=${encodeURIComponent(testUrl)}`;
     const request: http.HttpRequest = http.createHttp();
     try {
       const response: http.HttpResponse = await request.request(`${CONTROLLER_BASE}${path}?${query}`, {
@@ -98,7 +122,7 @@ export class CoreControllerService {
         usingCache: false
       });
       if (response.responseCode < 200 || response.responseCode >= 300 || typeof response.result !== 'string') {
-        return { name, delay: 0, available: false };
+        return { name, delay: 0, available: false, detail: `控制端返回 HTTP ${response.responseCode}` };
       }
       const result: DelayResponse = JSON.parse(response.result) as DelayResponse;
       return {
@@ -106,18 +130,20 @@ export class CoreControllerService {
         delay: result.delay,
         available: result.delay > 0
       };
-    } catch (_error) {
-      return { name, delay: 0, available: false };
+    } catch (error) {
+      const businessError: BusinessError = error as BusinessError;
+      return { name, delay: 0, available: false,
+        detail: this.describeNetworkError(businessError.code, '控制端连接失败') };
     } finally {
       request.destroy();
     }
   }
 
-  private async testXrayNode(name: string, index: number): Promise<NodeDelayResult> {
+  private async testXrayNode(name: string, index: number, testUrl: string): Promise<NodeDelayResult> {
     const request: http.HttpRequest = http.createHttp();
     const startedAt: number = Date.now();
     try {
-      const response: http.HttpResponse = await request.request(LATENCY_TEST_URL, {
+      const response: http.HttpResponse = await request.request(testUrl, {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: 3000,
@@ -130,16 +156,33 @@ export class CoreControllerService {
         }
       });
       const delay: number = Date.now() - startedAt;
+      const available: boolean = response.responseCode >= 200 && response.responseCode < 400;
       return {
         name,
-        delay,
-        available: response.responseCode >= 200 && response.responseCode < 400
+        delay: available ? delay : 0,
+        available,
+        detail: available ? undefined : `代理出口返回 HTTP ${response.responseCode}`
       };
-    } catch (_error) {
-      return { name, delay: 0, available: false };
+    } catch (error) {
+      const businessError: BusinessError = error as BusinessError;
+      return { name, delay: 0, available: false,
+        detail: this.describeNetworkError(businessError.code, '代理握手失败或超时') };
     } finally {
       request.destroy();
     }
+  }
+
+  private describeNetworkError(code: number, fallback: string): string {
+    if (code === 2300005) return '本地代理地址解析失败';
+    if (code === 2300006) return 'DNS 解析失败';
+    if (code === 2300007) return 'TCP 连接失败';
+    if (code === 2300008 || code === 2300052) return '远端服务器响应无效';
+    if (code === 2300016) return 'HTTP/2 通信失败';
+    if (code === 2300028) return '代理握手或访问测试超时';
+    if (code === 2300055) return '向代理出口发送数据失败';
+    if (code === 2300056) return '从代理出口接收数据失败';
+    if (code === 2300058 || code === 2300059 || code === 2300060) return 'TLS 证书或握手失败';
+    return code ? `${fallback}（${code}）` : fallback;
   }
 
   async selectNode(groupName: string, nodeName: string): Promise<boolean> {

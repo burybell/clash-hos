@@ -74,7 +74,7 @@ C++ Node-API 桥接层
 - 已提供 PC/2-in-1 构建支持，但实体设备测试目前仍以手机为主。
 - 订阅链接和节点凭据目前保存在应用沙箱中，后续计划接入硬件级安全存储。
 
-设计背景参见 [`docs/technical-proposal.md`](docs/technical-proposal.md)，早期里程碑参见 [`docs/m0-checklist.md`](docs/m0-checklist.md)。
+设计背景参见 [`docs/technical-proposal.md`](docs/technical-proposal.md)，早期里程碑参见 [`docs/m0-checklist.md`](docs/m0-checklist.md)，当前数据通路可靠性工作参见 [`docs/r4-checklist.zh-CN.md`](docs/r4-checklist.zh-CN.md)。
 
 ## 开发环境
 

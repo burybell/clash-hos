@@ -16,6 +16,13 @@ struct TrafficStats {
   uint64_t upload_bytes;
   uint64_t download_bytes;
   uint64_t active_connections;
+  uint64_t inbound_packets;
+  uint64_t outbound_packets;
+  uint64_t dropped_packets;
+  uint64_t tcp_open_errors;
+  uint64_t udp_open_errors;
+  uint64_t udp_quic_blocked_packets;
+  uint64_t udp_vision_rejections;
 };
 
 class CoreRuntime final {

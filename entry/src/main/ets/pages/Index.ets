@@ -8,7 +8,6 @@ import { appPreferencesService, RoutingMode } from '../core/AppPreferencesServic
 import { coreControllerService, NodeDelayResult } from '../core/CoreControllerService';
 import { coreService } from '../core/CoreService';
 import { CoreStatus, TrafficStats, TunnelState } from '../core/CoreTypes';
-import { NativeCoreBridge } from '../core/NativeCoreBridge';
 import { runtimeStateService } from '../core/RuntimeStateService';
 import {
   SubscriptionImportResult,
@@ -38,6 +37,8 @@ struct Index {
   @State private downloadRate: string = '0 B/s';
   @State private activeConnections: number = 0;
   @State private sessionDuration: string = '00:00';
+  @State private connectivityMessage: string = '尚未检测网络出口';
+  @State private connectivityVerified: boolean = false;
   @State private autoUpdateHours: number = 24;
   @State private autoSelectNode: boolean = false;
   @State private preferredCountries: string[] = [];
@@ -67,6 +68,12 @@ struct Index {
     this.autoSelectNode = appPreferencesService.getAutoSelectNode(filesDir);
     this.preferredCountries = appPreferencesService.getPreferredCountries(filesDir);
     this.reloadSubscriptions();
+    if (this.tunnelState === TunnelState.CONNECTED) {
+      this.connectivityMessage = '正在重新验证网络出口…';
+      setTimeout((): void => {
+        this.verifyActiveConnection();
+      }, 0);
+    }
     this.pollTimer = setInterval(() => this.refreshRuntimeMetrics(), 1000);
     this.updateIfDue();
   }
@@ -119,28 +126,90 @@ struct Index {
       const stopped: CoreStatus = await coreService.disconnect(this.filesDir());
       this.tunnelState = stopped.state;
       this.statusMessage = stopped.message;
+      this.connectivityMessage = '尚未检测网络出口';
+      this.connectivityVerified = false;
     } else {
       this.tunnelState = TunnelState.STARTING;
       this.statusMessage = '正在启动代理内核';
       const started: CoreStatus = await coreService.connect(this.filesDir());
       if (started.state === TunnelState.CONNECTED) {
         this.statusMessage = '正在等待代理内核就绪';
-        const ready: boolean = await coreControllerService.waitUntilReady();
+        const ready: boolean = await this.waitForActiveEngine();
+        if (!ready) {
+          await coreService.disconnect(this.filesDir());
+          this.tunnelState = TunnelState.FAILED;
+          this.statusMessage = this.activeEngine === 'clashrs' ?
+            'ClashRS 控制服务启动超时，连接已安全关闭' : 'Reality 内核启动超时，连接已安全关闭';
+          this.connectivityMessage = '内核未就绪';
+          this.connectivityVerified = false;
+          this.resetTrafficBaseline();
+          this.busy = false;
+          return;
+        }
+        let selectionReady: boolean = true;
         if (this.autoSelectNode) {
-          const selected: boolean = ready && await this.autoSelectBestNode();
-          this.statusMessage = selected ? `已连接 · 自动选择 ${this.selectedProxy}` :
-            '已连接，未找到可用节点';
+          selectionReady = await this.autoSelectBestNode();
         } else {
           this.statusMessage = '正在应用节点选择';
-          await this.applyClashSelection();
-          this.statusMessage = started.message;
+          selectionReady = await this.applyClashSelection();
+        }
+        if (selectionReady) {
+          await this.verifyActiveConnection();
+        } else {
+          this.connectivityVerified = false;
+          this.connectivityMessage = '节点选择未生效';
+          this.statusMessage = this.autoSelectNode ? '已连接，但没有找到可用节点' :
+            `已连接，但节点 ${this.selectedProxy} 选择失败`;
         }
       } else {
         this.statusMessage = started.message;
+        this.connectivityMessage = '连接未建立';
+        this.connectivityVerified = false;
       }
-      this.tunnelState = started.state;
+      this.tunnelState = coreService.getStatus().state;
     }
     this.resetTrafficBaseline();
+    this.busy = false;
+  }
+
+  private async waitForActiveEngine(): Promise<boolean> {
+    if (this.activeEngine === 'clashrs') {
+      return coreControllerService.waitUntilReady();
+    }
+    // The VPN extension owns the xray-rust instance in a separate process.
+    // CoreService only receives CONNECTED after that process starts the core.
+    return true;
+  }
+
+  private async verifyActiveConnection(): Promise<void> {
+    this.statusMessage = '正在验证代理出口';
+    this.connectivityMessage = '正在验证网络出口…';
+    this.connectivityVerified = false;
+    const index: number = this.activeEngine === 'xray' ? this.proxyNames.indexOf(this.selectedProxy) : -1;
+    if (this.activeEngine === 'xray' && index < 0) {
+      this.connectivityMessage = '当前节点不在配置中';
+      this.statusMessage = '连接已建立，但当前节点配置无效';
+      return;
+    }
+    const result: NodeDelayResult = await coreControllerService.verifyNode(this.selectedProxy, index);
+    if (result.available) {
+      this.connectivityVerified = true;
+      this.connectivityMessage = `代理出口正常 · ${result.delay} ms`;
+      this.statusMessage = this.autoSelectNode ? `已连接 · 自动选择 ${this.selectedProxy}` :
+        `已连接 · ${this.selectedProxy}`;
+      const labels: string[] = this.delayLabels.slice();
+      if (index >= 0) labels[index] = `${result.delay} ms`;
+      this.delayLabels = labels;
+      return;
+    }
+    this.connectivityMessage = result.detail ?? '代理出口不可用';
+    this.statusMessage = `连接已建立，但节点 ${this.selectedProxy} 无法访问互联网`;
+  }
+
+  private async recheckActiveConnection(): Promise<void> {
+    if (this.busy || this.tunnelState !== TunnelState.CONNECTED) return;
+    this.busy = true;
+    await this.verifyActiveConnection();
     this.busy = false;
   }
 
@@ -171,7 +240,7 @@ struct Index {
     }
     if (changed) {
       const restarted: CoreStatus = await coreService.restart(this.filesDir());
-      return restarted.state === TunnelState.CONNECTED;
+      return restarted.state === TunnelState.CONNECTED && await this.waitForActiveEngine();
     }
     return true;
   }
@@ -224,12 +293,19 @@ struct Index {
       this.busy = true;
       this.tunnelState = TunnelState.STARTING;
       this.statusMessage = `正在切换到${label}模式`;
+      this.connectivityVerified = false;
+      this.connectivityMessage = '正在重新建立网络出口…';
       const result: CoreStatus = await coreService.restart(this.filesDir());
       this.tunnelState = result.state;
       if (result.state === TunnelState.CONNECTED) {
-        await this.applyClashSelection();
+        const ready: boolean = await this.waitForActiveEngine();
+        const selected: boolean = ready && await this.applyClashSelection();
+        if (selected) await this.verifyActiveConnection();
+        else this.connectivityMessage = ready ? '节点选择未生效' : '内核未就绪';
+      } else {
+        this.connectivityMessage = '连接未建立';
       }
-      this.statusMessage = result.state === TunnelState.CONNECTED ? `已切换到${label}模式` : result.message;
+      if (result.state !== TunnelState.CONNECTED) this.statusMessage = result.message;
       this.busy = false;
     } else {
       this.statusMessage = `已切换到${label}模式`;
@@ -244,28 +320,36 @@ struct Index {
       this.busy = true;
       this.tunnelState = TunnelState.STARTING;
       this.statusMessage = `正在切换到 ${name}`;
+      this.connectivityVerified = false;
+      this.connectivityMessage = '正在验证新节点…';
       const result: CoreStatus = await coreService.restart(this.filesDir());
       this.tunnelState = result.state;
       if (result.state === TunnelState.CONNECTED) {
-        await this.applyClashSelection();
+        const ready: boolean = await this.waitForActiveEngine();
+        const selected: boolean = ready && await this.applyClashSelection();
+        if (selected) await this.verifyActiveConnection();
+        else this.connectivityMessage = ready ? '节点选择未生效' : '内核未就绪';
+      } else {
+        this.connectivityMessage = '连接未建立';
       }
-      this.statusMessage = result.state === TunnelState.CONNECTED ? `已切换到 ${name}` : result.message;
+      if (result.state !== TunnelState.CONNECTED) this.statusMessage = result.message;
       this.busy = false;
     } else {
       this.statusMessage = `已选择 ${name}`;
     }
   }
 
-  private async applyClashSelection(): Promise<void> {
+  private async applyClashSelection(): Promise<boolean> {
     if (this.activeEngine !== 'clashrs' || this.selectorGroupName.length === 0 ||
       this.selectedProxy.length === 0) {
-      return;
+      return this.activeEngine !== 'clashrs';
     }
     const selected: boolean = await coreControllerService.selectNode(
       this.selectorGroupName, this.selectedProxy);
     if (!selected) {
       this.statusMessage = `节点 ${this.selectedProxy} 选择失败`;
     }
+    return selected;
   }
 
   private async testAllNodes(): Promise<void> {
@@ -333,7 +417,7 @@ struct Index {
     }
     this.tunnelState = TunnelState.CONNECTED;
     this.statusMessage = '正在等待测速服务就绪';
-    const ready: boolean = await coreControllerService.waitUntilReady();
+    const ready: boolean = await this.waitForActiveEngine();
     if (!ready) {
       await this.stopTemporaryTestCore();
       this.statusMessage = '测速服务启动超时';
@@ -373,12 +457,19 @@ struct Index {
       this.statusMessage = `配置已更新，识别到 ${result.proxyNames.length} 个节点`;
       if (this.tunnelState === TunnelState.CONNECTED) {
         this.busy = true;
+        this.connectivityVerified = false;
+        this.connectivityMessage = '正在验证更新后的配置…';
         const status: CoreStatus = await coreService.restart(this.filesDir());
         this.tunnelState = status.state;
         if (status.state === TunnelState.CONNECTED) {
-          await this.applyClashSelection();
+          const ready: boolean = await this.waitForActiveEngine();
+          const selected: boolean = ready && await this.applyClashSelection();
+          if (selected) await this.verifyActiveConnection();
         }
-        this.statusMessage = status.state === TunnelState.CONNECTED ? '配置已更新并重新连接' : status.message;
+        if (status.state !== TunnelState.CONNECTED) {
+          this.connectivityMessage = '连接未建立';
+          this.statusMessage = status.message;
+        }
         this.busy = false;
       }
     } catch (error) {
@@ -394,12 +485,19 @@ struct Index {
       this.statusMessage = `已启用 ${active.name}`;
       if (this.tunnelState === TunnelState.CONNECTED) {
         this.busy = true;
+        this.connectivityVerified = false;
+        this.connectivityMessage = '正在验证新配置…';
         const status: CoreStatus = await coreService.restart(this.filesDir());
         this.tunnelState = status.state;
         if (status.state === TunnelState.CONNECTED) {
-          await this.applyClashSelection();
+          const ready: boolean = await this.waitForActiveEngine();
+          const selected: boolean = ready && await this.applyClashSelection();
+          if (selected) await this.verifyActiveConnection();
         }
-        this.statusMessage = status.state === TunnelState.CONNECTED ? `已启用并连接 ${active.name}` : status.message;
+        if (status.state !== TunnelState.CONNECTED) {
+          this.connectivityMessage = '连接未建立';
+          this.statusMessage = status.message;
+        }
         this.busy = false;
       }
     } catch (error) {
@@ -426,6 +524,9 @@ struct Index {
       const status: CoreStatus = this.proxyNames.length > 0 ? await coreService.restart(this.filesDir()) :
         await coreService.disconnect(this.filesDir());
       this.tunnelState = status.state;
+      this.connectivityVerified = false;
+      this.connectivityMessage = status.state === TunnelState.CONNECTED ? '配置已切换，等待验证' :
+        '尚未检测网络出口';
       this.busy = false;
     }
     this.statusMessage = '配置已删除';
@@ -494,7 +595,7 @@ struct Index {
     this.metricsRefreshing = true;
     const now: number = Date.now();
     const stats: TrafficStats = this.activeEngine === 'clashrs' ?
-      await coreControllerService.getTrafficStats() : NativeCoreBridge.getTrafficStats();
+      await coreControllerService.getTrafficStats() : runtimeStateService.readTraffic(this.filesDir());
     if (this.activeEngine === 'clashrs') {
       this.uploadRate = this.formatRate(stats.uploadBytes);
       this.downloadRate = this.formatRate(stats.downloadBytes);
@@ -565,8 +666,10 @@ struct Index {
                 uploadRate: this.uploadRate, downloadRate: this.downloadRate,
                 sessionDuration: this.sessionDuration, activeConnections: this.activeConnections,
                 profileName: this.profileName, nodeCount: this.proxyNames.length, busy: this.busy,
-                dark: this.dark,
+                connectivityMessage: this.connectivityMessage,
+                connectivityVerified: this.connectivityVerified, dark: this.dark,
                 onToggle: () => this.toggleConnection(), onMode: (mode: string) => this.changeMode(mode),
+                onRecheck: () => this.recheckActiveConnection(),
                 onOpenNodes: () => this.navigate(1), onOpenProfiles: () => this.navigate(2)
               })
             } else if (this.currentSection === 1) {

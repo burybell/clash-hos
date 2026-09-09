@@ -392,7 +392,7 @@ CoreStatus CoreRuntime::Stop() {
 TrafficStats CoreRuntime::GetTrafficStats() const {
   XrayRuntimeResult& xray = GetXrayRuntime();
   if (!xray.running || xray.handle == nullptr || xray.tun_stats == nullptr) {
-    return {0, 0, 0};
+    return {};
   }
   XrayTunStatsV1 stats{};
   stats.struct_size = sizeof(stats);
@@ -401,12 +401,19 @@ TrafficStats CoreRuntime::GetTrafficStats() const {
     if (error != nullptr) {
       xray.error_free(error);
     }
-    return {0, 0, 0};
+    return {};
   }
   return {
       stats.tcp_remote_written_bytes + stats.udp_remote_written_bytes,
       stats.tcp_remote_read_bytes + stats.udp_remote_read_bytes,
       stats.active_tcp_flows + stats.active_udp_flows,
+      stats.inbound_packets,
+      stats.outbound_packets,
+      stats.dropped_packets,
+      stats.tcp_open_errors,
+      stats.udp_open_errors,
+      stats.udp_quic_blocked_packets,
+      stats.udp_vision_udp443_rejections,
   };
 }
 

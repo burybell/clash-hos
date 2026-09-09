@@ -18,6 +18,8 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
   private connection?: vpnExtension.VpnConnection;
   private tunFd: number = -1;
   private starting: boolean = false;
+  private statsTimer: number = -1;
+  private lastDiagnosticErrors: number = 0;
 
   onCreate(want: Want): void {
     hilog.info(DOMAIN, TAG, 'VPN extension created: %{public}s', want.abilityName ?? 'unknown');
@@ -34,6 +36,10 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
 
   onDestroy(): void {
     this.destroyTunnel();
+    runtimeStateService.write(this.context.filesDir, {
+      state: TunnelState.DISCONNECTED,
+      message: 'VPN 扩展已停止'
+    });
   }
 
   private async setupWhenCoreIsReady(): Promise<void> {
@@ -118,6 +124,7 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
         message: routingMode === 'direct' ? '直连模式正在运行' :
           (routingMode === 'global' ? '全局代理正在运行' : '规则代理正在运行')
       });
+      this.startStatsReporter();
       this.starting = false;
     } catch (error) {
       const businessError: BusinessError = error as BusinessError;
@@ -136,6 +143,7 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
   }
 
   private async destroyTunnel(): Promise<void> {
+    this.stopStatsReporter();
     NativeCoreBridge.stop();
     if (!this.connection) {
       return;
@@ -152,6 +160,35 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
       this.starting = false;
       this.connection = undefined;
     }
+  }
+
+  private startStatsReporter(): void {
+    this.stopStatsReporter();
+    const report = (): void => {
+      const stats = NativeCoreBridge.getTrafficStats();
+      runtimeStateService.writeTraffic(this.context.filesDir, stats);
+      const errors: number = (stats.droppedPackets ?? 0) + (stats.tcpOpenErrors ?? 0) +
+        (stats.udpOpenErrors ?? 0) + (stats.udpQuicBlockedPackets ?? 0) +
+        (stats.udpVisionRejections ?? 0);
+      if (errors > this.lastDiagnosticErrors) {
+        hilog.warn(DOMAIN, TAG,
+          'TUN diagnostics: in=%{public}d out=%{public}d drop=%{public}d tcpErr=%{public}d udpErr=%{public}d quic=%{public}d vision=%{public}d',
+          stats.inboundPackets ?? 0, stats.outboundPackets ?? 0, stats.droppedPackets ?? 0,
+          stats.tcpOpenErrors ?? 0, stats.udpOpenErrors ?? 0, stats.udpQuicBlockedPackets ?? 0,
+          stats.udpVisionRejections ?? 0);
+        this.lastDiagnosticErrors = errors;
+      }
+    };
+    report();
+    this.statsTimer = setInterval(report, 1000);
+  }
+
+  private stopStatsReporter(): void {
+    if (this.statsTimer >= 0) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = -1;
+    }
+    this.lastDiagnosticErrors = 0;
   }
 
   private writeFailedState(message: string): void {

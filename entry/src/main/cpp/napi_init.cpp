@@ -142,6 +142,18 @@ napi_value GetTrafficStats(napi_env env, napi_callback_info info) {
   napi_value connections = nullptr;
   napi_create_double(env, static_cast<double>(stats.active_connections), &connections);
   napi_set_named_property(env, result, "activeConnections", connections);
+  const auto set_counter = [&](const char* name, uint64_t value) {
+    napi_value counter = nullptr;
+    napi_create_double(env, static_cast<double>(value), &counter);
+    napi_set_named_property(env, result, name, counter);
+  };
+  set_counter("inboundPackets", stats.inbound_packets);
+  set_counter("outboundPackets", stats.outbound_packets);
+  set_counter("droppedPackets", stats.dropped_packets);
+  set_counter("tcpOpenErrors", stats.tcp_open_errors);
+  set_counter("udpOpenErrors", stats.udp_open_errors);
+  set_counter("udpQuicBlockedPackets", stats.udp_quic_blocked_packets);
+  set_counter("udpVisionRejections", stats.udp_vision_rejections);
   return result;
 }
 

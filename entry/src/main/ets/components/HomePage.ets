@@ -10,17 +10,22 @@ export struct HomePage {
   @Prop downloadRate: string;
   @Prop sessionDuration: string;
   @Prop activeConnections: number;
+  @Prop connectivityMessage: string;
+  @Prop connectivityVerified: boolean;
   @Prop profileName: string;
   @Prop nodeCount: number;
   @Prop busy: boolean;
   @Prop dark: boolean;
   onToggle: () => void = () => {};
+  onRecheck: () => void = () => {};
   onMode: (mode: string) => void = (_mode: string) => {};
   onOpenNodes: () => void = () => {};
   onOpenProfiles: () => void = () => {};
 
   private stateLabel(): string {
-    if (this.tunnelState === TunnelState.CONNECTED) return '连接安全';
+    if (this.tunnelState === TunnelState.CONNECTED) {
+      return this.connectivityVerified ? '连接安全' : '连接待验证';
+    }
     if (this.tunnelState === TunnelState.STARTING) return '正在连接';
     if (this.tunnelState === TunnelState.STOPPING) return '正在断开';
     if (this.tunnelState === TunnelState.FAILED) return '连接异常';
@@ -66,6 +71,24 @@ export struct HomePage {
         if (!this.busy && this.tunnelState === TunnelState.FAILED) {
           Text(this.statusMessage).width('100%').fontSize(12)
             .fontColor(this.dark ? '#FF8A80' : '#C4320A').maxLines(2)
+        }
+        if (!this.busy && this.tunnelState === TunnelState.CONNECTED) {
+          Row({ space: 7 }) {
+            Circle({ width: 7, height: 7 }).fill(this.connectivityVerified ?
+              (this.dark ? '#45C997' : '#087A55') : (this.dark ? '#FFB74D' : '#B54708'))
+            Text(this.connectivityMessage).fontSize(12)
+              .fontColor(this.connectivityVerified ? (this.dark ? '#A6ADBB' : '#667085') :
+                (this.dark ? '#FFB74D' : '#B54708'))
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            if (!this.connectivityVerified) {
+              Blank()
+              Text('重新检测').fontSize(12).fontWeight(FontWeight.Medium)
+                .fontColor(this.dark ? '#8FA5FF' : '#315CFF')
+            }
+          }.width('100%')
+            .onClick(() => {
+              if (!this.connectivityVerified) this.onRecheck();
+            })
         }
       }.width('100%').padding(18).borderRadius(18).backgroundColor(this.dark ? '#1B1E24' : Color.White)
 

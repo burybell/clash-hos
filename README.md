@@ -74,7 +74,7 @@ Known limitations:
 - PC/2-in-1 packaging exists, but physical-device testing currently focuses on phones.
 - Subscription URLs and node credentials are stored in the application sandbox; hardware-backed secret storage is planned.
 
-See [`docs/technical-proposal.md`](docs/technical-proposal.md) for design background and [`docs/m0-checklist.md`](docs/m0-checklist.md) for early native-core milestones.
+See [`docs/technical-proposal.md`](docs/technical-proposal.md) for design background, [`docs/m0-checklist.md`](docs/m0-checklist.md) for early native-core milestones, and [`docs/r4-checklist.md`](docs/r4-checklist.md) for the current data-path reliability gate.
 
 ## Requirements
 

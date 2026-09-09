@@ -29,7 +29,7 @@
 - [ ] Run on HarmonyOS 6 PC/2-in-1 emulator/device.
 - [x] Confirm VPN authorization UI on the physical phone.
 - [x] Build a safe TUN handoff path with fail-close startup.
-- [ ] Decide and document the repository SPDX license.
+- [x] Decide and document the repository SPDX license (Apache-2.0 for project-owned code).
 - [x] Pin Mihomo v1.19.30 / `ac017cdd246ce8bd547653d927e7bf77d7ee73d5` and record source metadata.
 - [x] Complete the Go/OHOS `c-shared` feasibility spike; reject the unmodified approach due to musl `initial-exec TLS` incompatibility.
 - [x] Build ClashRS FFI for ARM64 and x86_64 OHOS and load/probe the ARM64 library on a physical phone.
