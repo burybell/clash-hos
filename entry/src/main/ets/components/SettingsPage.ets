@@ -4,11 +4,18 @@ export struct SettingsPage {
   @Prop autoUpdateHours: number;
   @Prop autoSelectNode: boolean;
   @Prop preferredCountries: string[];
+  @Prop activeEngineLabel: string;
+  @Prop protocolSummary: string;
+  @Prop packetProbeMessage: string;
+  @Prop dnsUdpState: string;
+  @Prop dnsTcpState: string;
+  @Prop packetProbeRunning: boolean;
   @Prop version: string;
   @Prop dark: boolean;
   onAutoUpdate: (hours: number) => void = (_hours: number) => {};
   onAutoSelect: (enabled: boolean) => void = (_enabled: boolean) => {};
   onCountry: (country: string) => void = (_country: string) => {};
+  onPacketProbe: () => void = () => {};
 
   build() {
     Column({ space: 12 }) {
@@ -20,6 +27,31 @@ export struct SettingsPage {
         Divider().color(this.dark ? '#303641' : '#EAECF0')
         this.row('局域网', '规则模式下直连')
       }.width('100%').padding({ left: 16, right: 16, top: 4, bottom: 4 })
+        .borderRadius(18).backgroundColor(this.dark ? '#1B1E24' : Color.White)
+
+      Column({ space: 10 }) {
+        this.sectionHeader('协议与数据通路')
+        this.row('当前内核', this.activeEngineLabel)
+        Divider().color(this.dark ? '#303641' : '#EAECF0')
+        this.row('配置协议', this.protocolSummary)
+        Divider().color(this.dark ? '#303641' : '#EAECF0')
+        Row() {
+          this.probeState('DNS UDP', true)
+          this.probeState('DNS TCP', false)
+        }.width('100%')
+        Button() {
+          Row({ space: 8 }) {
+            if (this.packetProbeRunning) {
+              LoadingProgress().width(16).height(16).color(Color.White)
+            }
+            Text(this.packetProbeRunning ? '正在检测数据通路' : '运行数据通路自检')
+              .fontSize(13).fontColor(Color.White)
+          }
+        }.width('100%').height(42).backgroundColor('#315CFF')
+          .enabled(!this.packetProbeRunning).onClick(() => this.onPacketProbe())
+        Text(this.packetProbeMessage).fontSize(11).maxLines(2)
+          .fontColor(this.dark ? '#A6ADBB' : '#667085')
+      }.alignItems(HorizontalAlign.Start).width('100%').padding({ left: 16, right: 16, bottom: 16 })
         .borderRadius(18).backgroundColor(this.dark ? '#1B1E24' : Color.White)
 
       Column({ space: 12 }) {
@@ -94,6 +126,19 @@ export struct SettingsPage {
       Text(value).fontSize(13).fontColor(this.dark ? '#A6ADBB' : '#667085')
         .textAlign(TextAlign.End).maxLines(1)
     }.width('100%').height(46)
+  }
+
+  @Builder
+  private probeState(label: string, udp: boolean) {
+    Column({ space: 4 }) {
+      Text(label).fontSize(12).fontColor(this.dark ? '#A6ADBB' : '#667085')
+      Text(udp ? this.dnsUdpState : this.dnsTcpState).fontSize(13).fontWeight(FontWeight.Medium)
+        .fontColor((udp ? this.dnsUdpState : this.dnsTcpState).startsWith('正常') ?
+          (this.dark ? '#45C997' : '#087A55') :
+          ((udp ? this.dnsUdpState : this.dnsTcpState) === '待检测' ?
+            (this.dark ? '#A6ADBB' : '#667085') :
+            (this.dark ? '#FFB74D' : '#B54708')))
+    }.alignItems(HorizontalAlign.Start).layoutWeight(1).padding({ top: 4, bottom: 4 })
   }
 
   @Builder

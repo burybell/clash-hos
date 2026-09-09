@@ -112,7 +112,7 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
       const routingMode: RoutingMode = appPreferencesService.getRoutingMode(this.context.filesDir);
       const runtimeConfig: string = xrayProfileService.shouldTranslate(profile) ?
         xrayProfileService.buildConfig(profile, selectedProxy, routingMode) :
-        this.buildClashRuntimeConfig(profile);
+        this.buildClashRuntimeConfig(profile, routingMode);
       const coreStatus = NativeCoreBridge.start(runtimeConfig, this.context.filesDir, this.tunFd);
       if (!coreStatus.running) {
         this.writeFailedState(coreStatus.message);
@@ -135,11 +135,12 @@ export default class ClashVpnExtensionAbility extends VpnExtensionAbility {
     }
   }
 
-  private buildClashRuntimeConfig(profile: string): string {
+  private buildClashRuntimeConfig(profile: string, routingMode: RoutingMode): string {
     const withoutController: string = profile
       .replace(/^\s*external-controller\s*:.*$/gm, '')
-      .replace(/^\s*secret\s*:.*$/gm, '');
-    return `external-controller: 127.0.0.1:9090\nsecret: \"\"\n${withoutController}`;
+      .replace(/^\s*secret\s*:.*$/gm, '')
+      .replace(/^\s*mode\s*:.*$/gm, '');
+    return `external-controller: 127.0.0.1:9090\nsecret: \"\"\nmode: ${routingMode}\n${withoutController}`;
   }
 
   private async destroyTunnel(): Promise<void> {

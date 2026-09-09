@@ -22,12 +22,12 @@ R4 的目标是把现有功能原型改造成“连接状态有真实网络结�
 
 ## R4.2 协议与数据包矩阵
 
-- [ ] DIRECT IPv4 TCP 和 UDP。
+- [x] DIRECT IPv4 TCP 和 UDP。
 - [ ] ClashRS Shadowsocks TCP 和 UDP。
 - [ ] ClashRS Trojan TCP 和 UDP（配置支持时）。
-- [ ] ClashRS AnyTLS TCP。
+- [x] ClashRS AnyTLS TCP。
 - [x] xray-rust VLESS REALITY Vision TCP。
-- [ ] Fake-IP DNS UDP 与 TCP 回退。
+- [x] Fake-IP DNS UDP 与 TCP 回退。
 - [ ] 两套内核的出口保护和防回环验证。
 
 ## R4.3 恢复与稳定性
@@ -51,3 +51,12 @@ R4 的目标是把现有功能原型改造成“连接状态有真实网络结�
 - 结果：所选节点的 HTTPS 探测返回 HTTP 204，系统浏览器通过 VPN 成功显示 `https://www.google.com`。
 - TUN 证据：诊断快照记录 71 个入站包和 60 个出站包，通用丢包、TCP/UDP 打开错误均为 0。
 - 预期兼容事件：Vision 拒绝了 2 次 UDP/443 请求，浏览器随后成功回退到 TCP。
+
+### 2026-09-09 ClashRS 数据通路测试
+
+- 设备：SGT-AL00、ARM64、OpenHarmony 7.0.0.105 / API 26。
+- 内核/配置：ClashRS；脱敏后的配置协议清单包含 AnyTLS 和 VLESS 节点。
+- 结果：所选节点通过双 HTTPS 出口检测，系统浏览器通过 VPN 成功打开 `https://www.google.com`。
+- DNS 证据：VPN 连接期间，独立的 DNS UDP 与 TCP 查询均收到事务号匹配的有效响应。
+- DIRECT 证据：切换 ClashRS 到直连模式后，独立的 IPv4 UDP 与 TCP DNS 查询均收到有效响应。
+- 隐私：未记录服务端、订阅元数据、凭据或流量内容。

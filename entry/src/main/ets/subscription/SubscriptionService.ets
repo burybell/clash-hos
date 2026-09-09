@@ -26,6 +26,7 @@ export interface SubscriptionInfo {
   proxyNames: string[];
   selectorGroupName: string;
   engine: 'xray' | 'clashrs';
+  protocols: string[];
   active: boolean;
 }
 
@@ -97,6 +98,7 @@ export class SubscriptionService {
           proxyNames: this.extractProxyNames(profile),
           selectorGroupName: this.extractSelectorGroupName(profile),
           engine: xrayProfileService.shouldTranslate(profile) ? 'xray' : 'clashrs',
+          protocols: this.extractProtocols(profile),
           active: item.id === index.activeId
         });
       } catch (_error) {
@@ -425,6 +427,45 @@ export class SubscriptionService {
       }
     }
     return names;
+  }
+
+  private extractProtocols(profile: string): string[] {
+    if (xrayProfileService.shouldTranslate(profile)) {
+      return ['VLESS REALITY Vision'];
+    }
+    const protocols: string[] = [];
+    const lines: string[] = profile.split('\n');
+    let inProxies: boolean = false;
+    for (let index: number = 0; index < lines.length; index += 1) {
+      const line: string = lines[index];
+      if (line.trim() === 'proxies:') {
+        inProxies = true;
+        continue;
+      }
+      if (inProxies && line.length > 0 && line[0] !== ' ' && line[0] !== '\t') break;
+      if (!inProxies) continue;
+      const match: RegExpMatchArray | null = line.match(/(?:^\s+type:|[,\s]type:)\s*["']?([a-zA-Z0-9_-]+)/);
+      if (!match || !match[1]) continue;
+      const label: string = this.protocolLabel(match[1]);
+      if (label.length > 0 && !protocols.includes(label)) protocols.push(label);
+    }
+    return protocols;
+  }
+
+  private protocolLabel(raw: string): string {
+    const value: string = raw.toLowerCase();
+    if (value === 'ss') return 'Shadowsocks';
+    if (value === 'ssr') return 'ShadowsocksR';
+    if (value === 'vmess') return 'VMess';
+    if (value === 'vless') return 'VLESS';
+    if (value === 'trojan') return 'Trojan';
+    if (value === 'anytls') return 'AnyTLS';
+    if (value === 'hysteria2' || value === 'hy2') return 'Hysteria2';
+    if (value === 'tuic') return 'TUIC';
+    if (value === 'socks5') return 'SOCKS5';
+    if (value === 'http') return 'HTTP';
+    if (value === 'wireguard') return 'WireGuard';
+    return value.length > 0 ? value.toUpperCase() : '';
   }
 
   private isInformationNode(name: string): boolean {

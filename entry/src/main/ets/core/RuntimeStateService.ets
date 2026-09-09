@@ -9,6 +9,7 @@ interface StoredRuntimeState {
   state: string;
   message: string;
   connectedAt: number;
+  updatedAt?: number;
 }
 
 interface StoredTrafficState {
@@ -58,7 +59,8 @@ export class RuntimeStateService {
       const stored: StoredRuntimeState = {
         state: status.state,
         message: status.message,
-        connectedAt: status.state === TunnelState.CONNECTED ? Date.now() : 0
+        connectedAt: status.state === TunnelState.CONNECTED ? Date.now() : 0,
+        updatedAt: Date.now()
       };
       try {
         fileIo.writeSync(file.fd, JSON.stringify(stored));
@@ -81,6 +83,22 @@ export class RuntimeStateService {
       }
       if (stored.state === TunnelState.DISCONNECTED) {
         return { state: TunnelState.DISCONNECTED, message: stored.message };
+      }
+    } catch (_error) {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  readSince(filesDir: string, notBefore: number): CoreStatus | undefined {
+    try {
+      const stored: StoredRuntimeState = JSON.parse(fileIo.readTextSync(this.path(filesDir))) as StoredRuntimeState;
+      if ((stored.updatedAt ?? 0) < notBefore) return undefined;
+      if (stored.state === TunnelState.CONNECTED) {
+        return { state: TunnelState.CONNECTED, message: stored.message };
+      }
+      if (stored.state === TunnelState.FAILED) {
+        return { state: TunnelState.FAILED, message: stored.message };
       }
     } catch (_error) {
       return undefined;

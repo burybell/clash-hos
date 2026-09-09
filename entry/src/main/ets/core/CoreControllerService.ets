@@ -65,7 +65,9 @@ export class CoreControllerService {
   }
 
   async waitUntilReady(): Promise<boolean> {
-    for (let attempt: number = 0; attempt < 20; attempt += 1) {
+    // ClashRS reports its runtime as running before subscription DNS clients
+    // and the controller listener have completed cold-start initialization.
+    for (let attempt: number = 0; attempt < 80; attempt += 1) {
       const request: http.HttpRequest = http.createHttp();
       try {
         const response: http.HttpResponse = await request.request(`${CONTROLLER_BASE}/version`, {

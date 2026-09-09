@@ -22,12 +22,12 @@ R4 turns the existing feature-complete prototype into a client whose connected s
 
 ## R4.2 Protocol and packet-path matrix
 
-- [ ] DIRECT IPv4 TCP and UDP.
+- [x] DIRECT IPv4 TCP and UDP.
 - [ ] ClashRS Shadowsocks TCP and UDP.
 - [ ] ClashRS Trojan TCP and UDP where supported by the profile.
-- [ ] ClashRS AnyTLS TCP.
+- [x] ClashRS AnyTLS TCP.
 - [x] xray-rust VLESS REALITY Vision TCP.
-- [ ] Fake-IP DNS over UDP and TCP fallback.
+- [x] Fake-IP DNS over UDP and TCP fallback.
 - [ ] Socket protection and no-loop behavior under both engines.
 
 ## R4.3 Recovery and stability
@@ -51,3 +51,12 @@ For each device run, record the OS/API version, architecture, profile protocol (
 - Result: selected-node HTTPS probe returned HTTP 204 and the system browser rendered `https://www.google.com` through the VPN.
 - TUN evidence: diagnostic snapshot reached 71 inbound and 60 outbound packets with zero general drops and zero TCP/UDP open errors.
 - Expected compatibility event: two UDP/443 attempts were rejected by Vision and the browser successfully fell back to TCP.
+
+### 2026-09-09 ClashRS packet-path test
+
+- Device: SGT-AL00, ARM64, OpenHarmony 7.0.0.105 / API 26.
+- Engine/profile: ClashRS; the sanitized profile inventory contains AnyTLS and VLESS nodes.
+- Result: a selected node passed the dual HTTPS egress probe and the system browser rendered `https://www.google.com` through the VPN.
+- DNS evidence: independent DNS queries over UDP and TCP received valid matching responses while the VPN was active.
+- DIRECT evidence: after switching ClashRS to direct mode, independent IPv4 UDP and TCP DNS probes both received valid responses.
+- Privacy: endpoints, subscription metadata, credentials, and traffic contents were not recorded.

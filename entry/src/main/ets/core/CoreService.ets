@@ -44,8 +44,9 @@ export class CoreService {
 
     try {
       runtimeStateService.clear(filesDir);
+      const requestStartedAt: number = Date.now();
       await vpnExtension.startVpnExtensionAbility(VPN_WANT);
-      this.status = await this.waitForRuntime(filesDir);
+      this.status = await this.waitForRuntime(filesDir, requestStartedAt);
     } catch (error) {
       const businessError: BusinessError = error as BusinessError;
       this.status = {
@@ -87,11 +88,11 @@ export class CoreService {
     return this.connect(filesDir);
   }
 
-  private async waitForRuntime(filesDir: string): Promise<CoreStatus> {
+  private async waitForRuntime(filesDir: string, requestStartedAt: number): Promise<CoreStatus> {
     // The first VPN authorization can remain visible while the user reviews the
     // system dialog. Do not turn that normal interaction into a false timeout.
     for (let attempt: number = 0; attempt < 150; attempt++) {
-      const runtimeStatus: CoreStatus | undefined = runtimeStateService.read(filesDir);
+      const runtimeStatus: CoreStatus | undefined = runtimeStateService.readSince(filesDir, requestStartedAt);
       if (runtimeStatus) {
         return runtimeStatus;
       }

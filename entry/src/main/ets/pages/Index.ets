@@ -9,6 +9,7 @@ import { coreControllerService, NodeDelayResult } from '../core/CoreControllerSe
 import { coreService } from '../core/CoreService';
 import { CoreStatus, TrafficStats, TunnelState } from '../core/CoreTypes';
 import { runtimeStateService } from '../core/RuntimeStateService';
+import { packetPathService, PacketProbeResult } from '../core/PacketPathService';
 import {
   SubscriptionImportResult,
   SubscriptionInfo,
@@ -43,7 +44,12 @@ struct Index {
   @State private autoSelectNode: boolean = false;
   @State private preferredCountries: string[] = [];
   @State private activeEngine: 'xray' | 'clashrs' = 'xray';
+  @State private activeProtocols: string[] = [];
   @State private selectorGroupName: string = '';
+  @State private packetProbeRunning: boolean = false;
+  @State private packetProbeMessage: string = '连接后可验证 DNS 的 UDP 与 TCP 回退通路。';
+  @State private dnsUdpState: string = '待检测';
+  @State private dnsTcpState: string = '待检测';
   private pollTimer: number = -1;
   private lastStats: TrafficStats = { uploadBytes: 0, downloadBytes: 0, activeConnections: 0 };
   private lastStatsAt: number = 0;
@@ -100,11 +106,13 @@ struct Index {
       this.selectedProxy = '自动选择';
       this.delayLabels = [];
       this.selectorGroupName = '';
+      this.activeProtocols = [];
       return;
     }
     this.profileName = active.name;
     this.activeEngine = active.engine;
     this.selectorGroupName = active.selectorGroupName;
+    this.activeProtocols = active.protocols;
     this.proxyNames = active.proxyNames;
     const saved: string = subscriptionService.getSelectedProxy(this.filesDir());
     this.selectedProxy = saved.length > 0 && active.proxyNames.includes(saved) ? saved :
@@ -213,6 +221,25 @@ struct Index {
     this.busy = false;
   }
 
+  private async runPacketPathProbe(): Promise<void> {
+    if (this.packetProbeRunning) return;
+    if (this.tunnelState !== TunnelState.CONNECTED) {
+      this.packetProbeMessage = '请先建立连接，再运行数据通路自检。';
+      this.statusMessage = '数据通路自检需要先连接';
+      return;
+    }
+    this.packetProbeRunning = true;
+    this.dnsUdpState = '检测中';
+    this.dnsTcpState = '检测中';
+    this.packetProbeMessage = '正在通过 VPN 发起独立的 DNS UDP 与 TCP 查询…';
+    const result: PacketProbeResult = await packetPathService.run();
+    this.dnsUdpState = result.dnsUdp ? `正常 · ${result.dnsUdpMs} ms` : '不可用';
+    this.dnsTcpState = result.dnsTcp ? `正常 · ${result.dnsTcpMs} ms` : '不可用';
+    this.packetProbeMessage = result.detail;
+    this.statusMessage = result.detail;
+    this.packetProbeRunning = false;
+  }
+
   private async autoSelectBestNode(): Promise<boolean> {
     const preferred: string[] = this.proxyNames.filter((name: string) =>
       this.preferredCountries.length === 0 || this.preferredCountries.some(
@@ -230,14 +257,26 @@ struct Index {
     }
     if (available.length === 0) return false;
     available.sort((left: NodeDelayResult, right: NodeDelayResult) => left.delay - right.delay);
+    if (this.activeEngine === 'clashrs') {
+      const candidates: NodeDelayResult[] = available.slice(0, Math.min(8, available.length));
+      for (let index: number = 0; index < candidates.length; index += 1) {
+        const candidate: NodeDelayResult = candidates[index];
+        this.statusMessage = `正在验证候选节点 ${index + 1}/${candidates.length}`;
+        if (!await coreControllerService.selectNode(this.selectorGroupName, candidate.name)) continue;
+        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 180));
+        const verified: NodeDelayResult = await coreControllerService.verifyNode(candidate.name);
+        if (!verified.available) continue;
+        subscriptionService.saveSelectedProxy(this.filesDir(), candidate.name);
+        this.selectedProxy = candidate.name;
+        return true;
+      }
+      return false;
+    }
     const best: NodeDelayResult = available[0];
     this.statusMessage = `正在切换到最佳节点 · ${best.delay} ms`;
     subscriptionService.saveSelectedProxy(this.filesDir(), best.name);
     const changed: boolean = best.name !== this.selectedProxy;
     this.selectedProxy = best.name;
-    if (this.activeEngine === 'clashrs') {
-      return coreControllerService.selectNode(this.selectorGroupName, best.name);
-    }
     if (changed) {
       const restarted: CoreStatus = await coreService.restart(this.filesDir());
       return restarted.state === TunnelState.CONNECTED && await this.waitForActiveEngine();
@@ -692,10 +731,15 @@ struct Index {
             } else {
               SettingsPage({ routingMode: this.modeLabel(), autoUpdateHours: this.autoUpdateHours,
                 autoSelectNode: this.autoSelectNode, preferredCountries: this.preferredCountries,
+                activeEngineLabel: this.activeEngine === 'xray' ? 'xray-rust' : 'ClashRS',
+                protocolSummary: this.activeProtocols.length > 0 ? this.activeProtocols.join(' · ') : '未识别',
+                packetProbeMessage: this.packetProbeMessage, dnsUdpState: this.dnsUdpState,
+                dnsTcpState: this.dnsTcpState, packetProbeRunning: this.packetProbeRunning,
                 version: '0.9.0', dark: this.dark,
                 onAutoUpdate: (hours: number) => this.updateAutoHours(hours),
                 onAutoSelect: (enabled: boolean) => this.updateAutoSelect(enabled),
-                onCountry: (country: string) => this.togglePreferredCountry(country) })
+                onCountry: (country: string) => this.togglePreferredCountry(country),
+                onPacketProbe: () => this.runPacketPathProbe() })
             }
           }.width('100%').constraintSize({ minHeight: '100%', maxWidth: 920 })
             .alignItems(HorizontalAlign.Start)
