@@ -4,7 +4,7 @@ R4 turns the existing feature-complete prototype into a client whose connected s
 
 ## Exit criteria
 
-- [ ] A physical HarmonyOS phone can resolve DNS and carry TCP and UDP traffic through the selected proxy.
+- [x] A physical HarmonyOS phone can resolve DNS and carry TCP and UDP traffic through the selected proxy.
 - [ ] The UI distinguishes tunnel creation, core readiness, node selection, and verified proxy egress.
 - [ ] A failed core start closes the VPN and restores ordinary networking.
 - [ ] Wi-Fi/cellular switching recovers without an unbounded restart loop.
@@ -23,12 +23,12 @@ R4 turns the existing feature-complete prototype into a client whose connected s
 ## R4.2 Protocol and packet-path matrix
 
 - [x] DIRECT IPv4 TCP and UDP.
-- [ ] ClashRS Shadowsocks TCP and UDP.
-- [ ] ClashRS Trojan TCP and UDP where supported by the profile.
+- [x] ClashRS Shadowsocks TCP and UDP.
+- [x] ClashRS Trojan TCP and UDP where supported by the profile.
 - [x] ClashRS AnyTLS TCP.
 - [x] xray-rust VLESS REALITY Vision TCP.
 - [x] Fake-IP DNS over UDP and TCP fallback.
-- [ ] Socket protection and no-loop behavior under both engines.
+- [x] Socket protection and no-loop behavior under both engines.
 
 ## R4.3 Recovery and stability
 
@@ -59,4 +59,7 @@ For each device run, record the OS/API version, architecture, profile protocol (
 - Result: a selected node passed the dual HTTPS egress probe and the system browser rendered `https://www.google.com` through the VPN.
 - DNS evidence: independent DNS queries over UDP and TCP received valid matching responses while the VPN was active.
 - DIRECT evidence: after switching ClashRS to direct mode, independent IPv4 UDP and TCP DNS probes both received valid responses.
+- Shadowsocks evidence: an isolated LAN server recorded authenticated TCP streams and UDP packet connections from the phone while browser HTTPS and QUIC traffic succeeded through ClashRS.
+- Trojan evidence: an isolated TLS server recorded authenticated TCP streams and UDP packet connections from the phone while browser traffic succeeded through ClashRS.
+- No-loop evidence: both ClashRS and xray-rust completed sustained browser and diagnostic traffic with the VPN application's process protected from the tunnel and the app bundle excluded from capture; packet counters remained bounded and neither engine recursively re-entered the TUN path.
 - Privacy: endpoints, subscription metadata, credentials, and traffic contents were not recorded.

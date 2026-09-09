@@ -4,7 +4,7 @@ R4 的目标是把现有功能原型改造成“连接状态有真实网络结�
 
 ## 完成标准
 
-- [ ] HarmonyOS 手机实体机可以通过所选节点完成 DNS 解析以及 TCP、UDP 通信。
+- [x] HarmonyOS 手机实体机可以通过所选节点完成 DNS 解析以及 TCP、UDP 通信。
 - [ ] 界面能区分 VPN 隧道创建、内核就绪、节点选择和代理出口验证。
 - [ ] 内核启动失败时立即关闭 VPN，并恢复设备普通网络。
 - [ ] Wi-Fi 与蜂窝网络切换后能够恢复，且不会无限重启。
@@ -23,12 +23,12 @@ R4 的目标是把现有功能原型改造成“连接状态有真实网络结�
 ## R4.2 协议与数据包矩阵
 
 - [x] DIRECT IPv4 TCP 和 UDP。
-- [ ] ClashRS Shadowsocks TCP 和 UDP。
-- [ ] ClashRS Trojan TCP 和 UDP（配置支持时）。
+- [x] ClashRS Shadowsocks TCP 和 UDP。
+- [x] ClashRS Trojan TCP 和 UDP（配置支持时）。
 - [x] ClashRS AnyTLS TCP。
 - [x] xray-rust VLESS REALITY Vision TCP。
 - [x] Fake-IP DNS UDP 与 TCP 回退。
-- [ ] 两套内核的出口保护和防回环验证。
+- [x] 两套内核的出口保护和防回环验证。
 
 ## R4.3 恢复与稳定性
 
@@ -59,4 +59,7 @@ R4 的目标是把现有功能原型改造成“连接状态有真实网络结�
 - 结果：所选节点通过双 HTTPS 出口检测，系统浏览器通过 VPN 成功打开 `https://www.google.com`。
 - DNS 证据：VPN 连接期间，独立的 DNS UDP 与 TCP 查询均收到事务号匹配的有效响应。
 - DIRECT 证据：切换 ClashRS 到直连模式后，独立的 IPv4 UDP 与 TCP DNS 查询均收到有效响应。
+- Shadowsocks 证据：手机通过 ClashRS 访问浏览器 HTTPS 与 QUIC 流量时，隔离的局域网服务端记录到已认证的 TCP 流和 UDP 数据包连接。
+- Trojan 证据：手机通过 ClashRS 访问浏览器流量时，隔离的 TLS 服务端记录到已认证的 TCP 流和 UDP 数据包连接。
+- 防回环证据：VPN 应用进程受隧道出口保护且应用包名被排除捕获后，ClashRS 与 xray-rust 均持续完成浏览器和诊断流量；数据包计数保持有界，两套内核均未出现递归重入 TUN 数据通路。
 - 隐私：未记录服务端、订阅元数据、凭据或流量内容。
