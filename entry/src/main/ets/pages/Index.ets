@@ -12,7 +12,9 @@ import { runtimeStateService } from '../core/RuntimeStateService';
 import { packetPathService, PacketProbeResult } from '../core/PacketPathService';
 import {
   SubscriptionImportResult,
+  SubscriptionActivationSnapshot,
   SubscriptionInfo,
+  SubscriptionUpdateSnapshot,
   subscriptionService
 } from '../subscription/SubscriptionService';
 
@@ -189,7 +191,7 @@ struct Index {
     return true;
   }
 
-  private async verifyActiveConnection(): Promise<void> {
+  private async verifyActiveConnection(): Promise<boolean> {
     this.statusMessage = '正在验证代理出口';
     this.connectivityMessage = '正在验证网络出口…';
     this.connectivityVerified = false;
@@ -197,7 +199,7 @@ struct Index {
     if (this.activeEngine === 'xray' && index < 0) {
       this.connectivityMessage = '当前节点不在配置中';
       this.statusMessage = '连接已建立，但当前节点配置无效';
-      return;
+      return false;
     }
     const result: NodeDelayResult = await coreControllerService.verifyNode(this.selectedProxy, index);
     if (result.available) {
@@ -208,10 +210,11 @@ struct Index {
       const labels: string[] = this.delayLabels.slice();
       if (index >= 0) labels[index] = `${result.delay} ms`;
       this.delayLabels = labels;
-      return;
+      return true;
     }
     this.connectivityMessage = result.detail ?? '代理出口不可用';
     this.statusMessage = `连接已建立，但节点 ${this.selectedProxy} 无法访问互联网`;
+    return false;
   }
 
   private async recheckActiveConnection(): Promise<void> {
@@ -489,25 +492,27 @@ struct Index {
   private async updateSubscription(id: string, quiet: boolean = false): Promise<void> {
     if (this.importing || this.updatingId.length > 0) return;
     this.updatingId = id;
+    const updatingActive: boolean = this.subscriptions.some(
+      (item: SubscriptionInfo) => item.id === id && item.active);
     if (!quiet) this.statusMessage = '正在更新配置';
     try {
       const result: SubscriptionImportResult = await subscriptionService.updateSubscription(id, this.filesDir());
       this.reloadSubscriptions();
       this.statusMessage = `配置已更新，识别到 ${result.proxyNames.length} 个节点`;
-      if (this.tunnelState === TunnelState.CONNECTED) {
+      if (updatingActive && this.tunnelState === TunnelState.CONNECTED) {
         this.busy = true;
         this.connectivityVerified = false;
         this.connectivityMessage = '正在验证更新后的配置…';
         const status: CoreStatus = await coreService.restart(this.filesDir());
         this.tunnelState = status.state;
+        let updateVerified: boolean = false;
         if (status.state === TunnelState.CONNECTED) {
           const ready: boolean = await this.waitForActiveEngine();
           const selected: boolean = ready && await this.applyClashSelection();
-          if (selected) await this.verifyActiveConnection();
+          updateVerified = selected && await this.verifyActiveConnection();
         }
-        if (status.state !== TunnelState.CONNECTED) {
-          this.connectivityMessage = '连接未建立';
-          this.statusMessage = status.message;
+        if (!updateVerified && result.rollback) {
+          await this.rollbackFailedUpdate(result.rollback);
         }
         this.busy = false;
       }
@@ -517,8 +522,34 @@ struct Index {
     this.updatingId = '';
   }
 
+  private async rollbackFailedUpdate(snapshot: SubscriptionUpdateSnapshot): Promise<void> {
+    this.statusMessage = '新配置无法建立出口，正在恢复上一版本';
+    this.connectivityMessage = '正在回滚配置…';
+    subscriptionService.rollbackUpdate(snapshot, this.filesDir());
+    this.reloadSubscriptions();
+    const restored: CoreStatus = await coreService.restart(this.filesDir());
+    this.tunnelState = restored.state;
+    if (restored.state !== TunnelState.CONNECTED) {
+      this.connectivityVerified = false;
+      this.connectivityMessage = '旧配置恢复后仍无法连接';
+      this.statusMessage = '配置已回滚，但连接恢复失败，请手动重试';
+      return;
+    }
+    const ready: boolean = await this.waitForActiveEngine();
+    const selected: boolean = ready && await this.applyClashSelection();
+    const verified: boolean = selected && await this.verifyActiveConnection();
+    if (verified) {
+      this.statusMessage = '新配置不可用，已回滚并恢复连接';
+    } else {
+      this.connectivityMessage = ready ? '旧配置出口验证失败' : '旧内核启动超时';
+      this.statusMessage = '配置已回滚，但出口仍异常，请手动检查';
+    }
+  }
+
   private async activateSubscription(id: string): Promise<void> {
     try {
+      const snapshot: SubscriptionActivationSnapshot =
+        subscriptionService.captureActivationSnapshot(this.filesDir());
       const active: SubscriptionInfo = subscriptionService.activateSubscription(id, this.filesDir());
       this.reloadSubscriptions();
       this.statusMessage = `已启用 ${active.name}`;
@@ -528,14 +559,29 @@ struct Index {
         this.connectivityMessage = '正在验证新配置…';
         const status: CoreStatus = await coreService.restart(this.filesDir());
         this.tunnelState = status.state;
+        let activated: boolean = false;
         if (status.state === TunnelState.CONNECTED) {
           const ready: boolean = await this.waitForActiveEngine();
           const selected: boolean = ready && await this.applyClashSelection();
-          if (selected) await this.verifyActiveConnection();
+          activated = selected && await this.verifyActiveConnection();
         }
-        if (status.state !== TunnelState.CONNECTED) {
-          this.connectivityMessage = '连接未建立';
-          this.statusMessage = status.message;
+        if (!activated) {
+          this.statusMessage = '新配置无法建立出口，正在恢复原配置';
+          subscriptionService.rollbackActivation(snapshot, this.filesDir());
+          this.reloadSubscriptions();
+          const restored: CoreStatus = await coreService.restart(this.filesDir());
+          this.tunnelState = restored.state;
+          if (restored.state === TunnelState.CONNECTED) {
+            const ready: boolean = await this.waitForActiveEngine();
+            const selected: boolean = ready && await this.applyClashSelection();
+            const verified: boolean = selected && await this.verifyActiveConnection();
+            this.statusMessage = verified ? '新配置不可用，已恢复原配置和连接' :
+              '已恢复原配置，但出口仍异常，请手动检查';
+          } else {
+            this.connectivityVerified = false;
+            this.connectivityMessage = '原配置恢复后仍无法连接';
+            this.statusMessage = '已恢复原配置，但连接恢复失败，请手动重试';
+          }
         }
         this.busy = false;
       }
@@ -622,6 +668,23 @@ struct Index {
   }
 
   private async refreshRuntimeMetrics(): Promise<void> {
+    const runtime: CoreStatus | undefined = runtimeStateService.read(this.filesDir());
+    if (runtime && !this.busy && runtime.state !== this.tunnelState) {
+      const recovered: boolean = this.tunnelState === TunnelState.STARTING &&
+        runtime.state === TunnelState.CONNECTED;
+      this.tunnelState = runtime.state;
+      this.statusMessage = runtime.message;
+      if (runtime.state === TunnelState.STARTING) {
+        this.connectivityVerified = false;
+        this.connectivityMessage = '底层网络变化，正在恢复代理出口…';
+      } else if (runtime.state === TunnelState.FAILED) {
+        this.connectivityVerified = false;
+        this.connectivityMessage = '自动恢复已停止';
+      } else if (recovered) {
+        this.connectivityMessage = '连接已恢复，正在验证网络出口…';
+        await this.verifyActiveConnection();
+      }
+    }
     if (this.tunnelState !== TunnelState.CONNECTED) {
       this.uploadRate = '0 B/s';
       this.downloadRate = '0 B/s';

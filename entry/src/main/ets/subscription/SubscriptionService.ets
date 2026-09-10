@@ -14,6 +14,20 @@ export interface SubscriptionImportResult {
   byteLength: number;
   updatedAt: number;
   proxyNames: string[];
+  rollback?: SubscriptionUpdateSnapshot;
+}
+
+export interface SubscriptionUpdateSnapshot {
+  id: string;
+  profile: string;
+  activeProfile: string;
+  index: string;
+}
+
+export interface SubscriptionActivationSnapshot {
+  index: string;
+  activeProfile: string;
+  selectedProxy: string;
 }
 
 export interface SubscriptionInfo {
@@ -141,6 +155,18 @@ export class SubscriptionService {
     return this.updateFromUrl(id, item.url, filesDir);
   }
 
+  rollbackUpdate(snapshot: SubscriptionUpdateSnapshot, filesDir: string): void {
+    if (snapshot.id.length === 0 || snapshot.profile.length === 0 || snapshot.index.length === 0) {
+      throw new Error('配置回滚快照无效');
+    }
+    this.validateProfile(snapshot.profile);
+    this.write(this.profilePath(filesDir, snapshot.id), snapshot.profile);
+    if (snapshot.activeProfile.length > 0) {
+      this.write(`${this.dir(filesDir)}/${ACTIVE_FILE}`, snapshot.activeProfile);
+    }
+    this.write(`${this.dir(filesDir)}/${INDEX_FILE}`, snapshot.index);
+  }
+
   activateSubscription(id: string, filesDir: string): SubscriptionInfo {
     const index: StoredIndex = this.loadIndex(filesDir);
     if (!this.find(index, id)) {
@@ -148,15 +174,44 @@ export class SubscriptionService {
     }
     const profile: string = fileIo.readTextSync(this.profilePath(filesDir, id));
     this.validateProfile(profile);
-    index.activeId = id;
-    this.saveIndex(filesDir, index);
-    this.write(`${this.dir(filesDir)}/${ACTIVE_FILE}`, profile);
-    this.write(`${this.dir(filesDir)}/${SELECTED_FILE}`, '');
+    const snapshot: SubscriptionActivationSnapshot = this.captureActivationSnapshot(filesDir);
+    try {
+      this.write(`${this.dir(filesDir)}/${ACTIVE_FILE}`, profile);
+      index.activeId = id;
+      this.saveIndex(filesDir, index);
+      this.write(`${this.dir(filesDir)}/${SELECTED_FILE}`, '');
+    } catch (error) {
+      this.rollbackActivation(snapshot, filesDir);
+      throw error as Error;
+    }
     const active: SubscriptionInfo | undefined = this.getSubscriptionInfo(filesDir);
     if (!active) {
       throw new Error('配置启用失败');
     }
     return active;
+  }
+
+  captureActivationSnapshot(filesDir: string): SubscriptionActivationSnapshot {
+    const index: StoredIndex = this.loadIndex(filesDir);
+    let activeProfile: string = '';
+    if (index.activeId.length > 0) {
+      activeProfile = fileIo.readTextSync(`${this.dir(filesDir)}/${ACTIVE_FILE}`);
+    }
+    return {
+      index: JSON.stringify(index),
+      activeProfile,
+      selectedProxy: this.getSelectedProxy(filesDir)
+    };
+  }
+
+  rollbackActivation(snapshot: SubscriptionActivationSnapshot, filesDir: string): void {
+    if (snapshot.index.length === 0) throw new Error('配置切换回滚快照无效');
+    if (snapshot.activeProfile.length > 0) {
+      this.validateProfile(snapshot.activeProfile);
+      this.write(`${this.dir(filesDir)}/${ACTIVE_FILE}`, snapshot.activeProfile);
+    }
+    this.write(`${this.dir(filesDir)}/${INDEX_FILE}`, snapshot.index);
+    this.write(`${this.dir(filesDir)}/${SELECTED_FILE}`, snapshot.selectedProxy);
   }
 
   renameSubscription(id: string, name: string, filesDir: string): void {
@@ -207,6 +262,13 @@ export class SubscriptionService {
     if (!item) {
       throw new Error('找不到要更新的配置');
     }
+    const snapshot: SubscriptionUpdateSnapshot = {
+      id,
+      profile: fileIo.readTextSync(this.profilePath(filesDir, id)),
+      activeProfile: index.activeId === id ?
+        fileIo.readTextSync(`${this.dir(filesDir)}/${ACTIVE_FILE}`) : '',
+      index: JSON.stringify(index)
+    };
     const updatedAt: number = Date.now();
     item.url = url.trim();
     item.updatedAt = updatedAt;
@@ -215,22 +277,28 @@ export class SubscriptionService {
       (item.name.startsWith('订阅 ') || item.name === '我的订阅')) {
       item.name = downloaded.suggestedName;
     }
-    this.write(this.profilePath(filesDir, id), downloaded.profile);
-    if (index.activeId === id) {
-      this.write(`${this.dir(filesDir)}/${ACTIVE_FILE}`, downloaded.profile);
+    try {
+      this.write(this.profilePath(filesDir, id), downloaded.profile);
+      if (index.activeId === id) {
+        this.write(`${this.dir(filesDir)}/${ACTIVE_FILE}`, downloaded.profile);
+      }
+      this.saveIndex(filesDir, index);
+    } catch (error) {
+      this.rollbackUpdate(snapshot, filesDir);
+      throw error as Error;
     }
-    this.saveIndex(filesDir, index);
-    return this.result(id, downloaded, updatedAt, filesDir);
+    return this.result(id, downloaded, updatedAt, filesDir, snapshot);
   }
 
   private result(id: string, downloaded: DownloadedProfile, updatedAt: number,
-    filesDir: string): SubscriptionImportResult {
+    filesDir: string, rollback?: SubscriptionUpdateSnapshot): SubscriptionImportResult {
     return {
       id,
       profilePath: this.profilePath(filesDir, id),
       byteLength: downloaded.byteLength,
       updatedAt,
-      proxyNames: this.extractProxyNames(downloaded.profile)
+      proxyNames: this.extractProxyNames(downloaded.profile),
+      rollback
     };
   }
 
@@ -333,13 +401,16 @@ export class SubscriptionService {
   }
 
   private write(path: string, text: string): void {
-    const file: fileIo.File = fileIo.openSync(path,
+    const temporaryPath: string = `${path}.tmp`;
+    const file: fileIo.File = fileIo.openSync(temporaryPath,
       fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
     try {
       fileIo.writeSync(file.fd, text);
+      fileIo.fsyncSync(file.fd);
     } finally {
       fileIo.closeSync(file);
     }
+    fileIo.renameSync(temporaryPath, path);
   }
 
   private validateUrl(url: string): void {

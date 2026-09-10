@@ -39,6 +39,16 @@ R4 turns the existing feature-complete prototype into a client whose connected s
 - [ ] Bounded crash recovery with a visible terminal failure state.
 - [ ] 8-hour phone run, followed by a 24-hour beta gate.
 
+### R4.3 implementation status (2026-09-10)
+
+- Implemented physical-bearer monitoring for cellular, Wi-Fi, and Ethernet with preferred-network deduplication and a two-second debounce.
+- Implemented a protected-process default-network poll as a fallback for devices that do not deliver bearer callbacks reliably.
+- Recovery is limited to three attempts in a rolling two-minute window. Exhaustion closes the tunnel and writes a visible terminal failure state.
+- An unexpected native-core exit enters the same bounded recovery path.
+- Profile and metadata writes now use a flushed temporary file followed by an atomic rename. Active profile updates and profile switches keep an in-memory rollback snapshot and restore it when the restarted proxy cannot establish verified egress.
+- A 20-second phone lock/background smoke test kept the UI and VPN processes alive and preserved the connected session. System-driven UI-process reclamation still requires a dedicated test.
+- Phone bearer switching kept the VPN present, but the final callback/fallback recovery behavior still needs a repeatable wired-debug test because disabling Wi-Fi also disconnects wireless HDC.
+
 ## Test evidence
 
 For each device run, record the OS/API version, architecture, profile protocol (without credentials), selected engine, network bearer, start/end timestamps, transferred bytes, failure reason, and recovery result. Never store subscription URLs, tokens, server credentials, or traffic payloads in test artifacts.

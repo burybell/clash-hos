@@ -84,6 +84,12 @@ export class RuntimeStateService {
       if (stored.state === TunnelState.DISCONNECTED) {
         return { state: TunnelState.DISCONNECTED, message: stored.message };
       }
+      if (stored.state === TunnelState.STARTING) {
+        return { state: TunnelState.STARTING, message: stored.message };
+      }
+      if (stored.state === TunnelState.STOPPING) {
+        return { state: TunnelState.STOPPING, message: stored.message };
+      }
     } catch (_error) {
       return undefined;
     }
@@ -99,6 +105,12 @@ export class RuntimeStateService {
       }
       if (stored.state === TunnelState.FAILED) {
         return { state: TunnelState.FAILED, message: stored.message };
+      }
+      if (stored.state === TunnelState.STARTING) {
+        return { state: TunnelState.STARTING, message: stored.message };
+      }
+      if (stored.state === TunnelState.STOPPING) {
+        return { state: TunnelState.STOPPING, message: stored.message };
       }
     } catch (_error) {
       return undefined;
